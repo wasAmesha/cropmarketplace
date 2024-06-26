@@ -12,6 +12,10 @@ on:
     branches:
       - main
 
+env:
+  REGISTRY: ghcr.io  # Default to GitHub Container Registry
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
@@ -22,66 +26,48 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Install cosign
         if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20
-        with:
-          cosign-release: 'v2.2.4'
+        uses: sigstore/cosign-installer@6e04d228eb30da1757ee4e1dd75a0ec73a653e06  # Use a specific release of cosign
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@79abd3f86f79a9d68a23c75a09a9a85889262adf
 
-      - name: Log into Docker Hub
+      - name: Log into Docker registry
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@28218f9b04b4f3f62068d7b6ce6ca5b26e35336c
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set environment variables
-        id: vars
-        run: |
-          echo "IMAGE_NAME=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-          echo "FRONTEND_IMAGE=$IMAGE_NAME-frontend" >> $GITHUB_ENV
-          echo "BACKEND_IMAGE=$IMAGE_NAME-backend" >> $GITHUB_ENV
-
-      - name: Build and push frontend Docker image
-        id: build-and-push-frontend
-        uses: docker/build-push-action@v3
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
         with:
-          context: ./frontend
-          file: ./frontend/Dockerfile
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@ac9327eae2b366085ac7f6a2d02df8aa8ead720a
+        with:
+          context: .
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ secrets.DOCKER_USERNAME }}/frontend-image:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Build and push backend Docker image
-        id: build-and-push-backend
-        uses: docker/build-push-action@v3
-        with:
-          context: ./backend
-          file: ./backend/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ secrets.DOCKER_USERNAME }}/backend-image:latest
-
-      - name: Sign the published frontend Docker image
+      - name: Sign the published Docker image
         if: ${{ github.event_name != 'pull_request' }}
         env:
-          IMAGE: ${{ secrets.DOCKER_USERNAME }}/frontend-image:latest
-        run: cosign sign --yes ${IMAGE}
-
-      - name: Sign the published backend Docker image
-        if: ${{ github.event_name != 'pull_request' }}
-        env:
-          IMAGE: ${{ secrets.DOCKER_USERNAME }}/backend-image:latest
-        run: cosign sign --yes ${IMAGE}
-
-      - name: Test with docker-compose
-        run: |
-          docker-compose up -d
-          # Add any commands to run your tests here
-          docker-compose down
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
 
       - name: Create GitHub package
         uses: actions/create-release@v1
@@ -94,3 +80,4 @@ jobs:
           prerelease: false
           body: |
             Release of version ${{ github.ref }}.
+
