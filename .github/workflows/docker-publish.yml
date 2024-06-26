@@ -1,4 +1,4 @@
-name: Docker Build and Publish
+name: Docker Build, Publish, and Package
 
 on:
   push:
@@ -43,33 +43,49 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
+      # Build and push frontend Docker image
+      - name: Build and push frontend Docker image
+        id: build-and-push-frontend
+        uses: docker/build-push-action@v2
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-
-      - name: Build and push Docker image
-        id: build-and-push
-        uses: docker/build-push-action@ac9327eae2b366085ac7f6a2d02df8aa8ead720a
-        with:
-          context: .  # Assumes Dockerfile is in the root directory
+          context: ./frontend  # Path to frontend Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Sign the published Docker image
-        if: ${{ github.event_name != 'pull_request' }}
-        env:
-          TAGS: ${{ steps.meta.outputs.tags }}
-          DIGEST: ${{ steps.build-and-push.outputs.digest }}
-        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+      # Build and push backend Docker image
+      - name: Build and push backend Docker image
+        id: build-and-push-backend
+        uses: docker/build-push-action@v2
+        with:
+          context: ./backend  # Path to backend Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Create GitHub package
+      # Push frontend Docker image to GitHub Packages
+      - name: Push frontend Docker image to GitHub Packages
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker push ghcr.io/${{ env.IMAGE_NAME }}/frontend:latest
+
+      # Push backend Docker image to GitHub Packages
+      - name: Push backend Docker image to GitHub Packages
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker push ghcr.io/${{ env.IMAGE_NAME }}/backend:latest
+
+      # Create GitHub Release
+      - name: Create GitHub Release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -80,3 +96,4 @@ jobs:
           prerelease: false
           body: |
             Release of version ${{ github.ref }}.
+
