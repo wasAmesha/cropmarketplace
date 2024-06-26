@@ -49,7 +49,7 @@ jobs:
 
       - name: Build and push frontend Docker image
         id: build-and-push-frontend
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v3
         with:
           context: ./frontend
           file: ./frontend/Dockerfile
@@ -58,7 +58,7 @@ jobs:
 
       - name: Build and push backend Docker image
         id: build-and-push-backend
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v3
         with:
           context: ./backend
           file: ./backend/Dockerfile
@@ -84,7 +84,7 @@ jobs:
           docker-compose down
 
       - name: Create GitHub package
-        uses: actions/create-release@v1
+        uses: actions/create-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -94,4 +94,3 @@ jobs:
           prerelease: false
           body: |
             Release of version ${{ github.ref }}.
-
