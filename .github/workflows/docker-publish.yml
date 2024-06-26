@@ -11,8 +11,9 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  FRONTEND_IMAGE: ${{ github.repository }}-frontend
-  BACKEND_IMAGE: ${{ github.repository }}-backend
+  IMAGE_NAME: ${{ github.repository | toLowerCase }}
+  FRONTEND_IMAGE: ${{ env.IMAGE_NAME }}-frontend
+  BACKEND_IMAGE: ${{ env.IMAGE_NAME }}-backend
 
 jobs:
   build:
