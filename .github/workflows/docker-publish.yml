@@ -18,6 +18,9 @@ jobs:
       packages: write
       id-token: write
 
+    env:
+      IMAGE_NAME: ${{ github.repository | lower }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -34,13 +37,6 @@ jobs:
       - name: Log into GitHub Packages Docker registry
         if: github.event_name != 'pull_request'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login docker.pkg.github.com -u ${{ github.repository_owner }} --password-stdin
-
-      - name: Set environment variables
-        id: vars
-        run: |
-          echo "IMAGE_NAME=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-          echo "FRONTEND_IMAGE=docker.pkg.github.com/${{ github.repository_owner }}/$IMAGE_NAME-frontend" >> $GITHUB_ENV
-          echo "BACKEND_IMAGE=docker.pkg.github.com/${{ github.repository_owner }}/$IMAGE_NAME-backend" >> $GITHUB_ENV
 
       - name: Build and push frontend Docker image
         id: build-and-push-frontend
@@ -62,15 +58,15 @@ jobs:
 
       - name: Sign the published frontend Docker image
         if: ${{ github.event_name != 'pull_request' }}
-        env:
-          IMAGE: docker.pkg.github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/frontend-image:latest
-        run: cosign sign --yes ${IMAGE}
+        run: |
+          IMAGE=docker.pkg.github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/frontend-image:latest
+          cosign sign --yes $IMAGE
 
       - name: Sign the published backend Docker image
         if: ${{ github.event_name != 'pull_request' }}
-        env:
-          IMAGE: docker.pkg.github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/backend-image:latest
-        run: cosign sign --yes ${IMAGE}
+        run: |
+          IMAGE=docker.pkg.github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/backend-image:latest
+          cosign sign --yes $IMAGE
 
       - name: Test with docker-compose
         run: |
