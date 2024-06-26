@@ -1,17 +1,19 @@
-name: Docker Package
+name: Docker Build and Publish
 
 on:
-  schedule:
-    - cron: '27 1 * * *'
   push:
-    branches: [ "main" ]
-    tags: [ 'v*.*.*' ]
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'  # Example: v1.0.0
+  schedule:
+    - cron: '27 1 * * *'  # Schedule to run daily at 01:27 UTC
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
 
 jobs:
-  build:
-
+  build-and-publish:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,16 +33,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226
 
-      - name: Log into GitHub Packages Docker registry
+      - name: Log into Docker Hub
         if: github.event_name != 'pull_request'
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login docker.pkg.github.com -u ${{ github.repository_owner }} --password-stdin
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Set environment variables
         id: vars
         run: |
           echo "IMAGE_NAME=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-          echo "FRONTEND_IMAGE=${{ github.repository_owner }}/$IMAGE_NAME-frontend" >> $GITHUB_ENV
-          echo "BACKEND_IMAGE=${{ github.repository_owner }}/$IMAGE_NAME-backend" >> $GITHUB_ENV
+          echo "FRONTEND_IMAGE=$IMAGE_NAME-frontend" >> $GITHUB_ENV
+          echo "BACKEND_IMAGE=$IMAGE_NAME-backend" >> $GITHUB_ENV
 
       - name: Build and push frontend Docker image
         id: build-and-push-frontend
@@ -49,7 +54,7 @@ jobs:
           context: ./frontend
           file: ./frontend/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
-          tags: docker.pkg.github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-frontend:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/frontend-image:latest
 
       - name: Build and push backend Docker image
         id: build-and-push-backend
@@ -58,22 +63,35 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
-          tags: docker.pkg.github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-backend:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/backend-image:latest
 
       - name: Sign the published frontend Docker image
         if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          IMAGE=docker.pkg.github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-frontend:latest
-          cosign sign --yes $IMAGE
+        env:
+          IMAGE: ${{ secrets.DOCKER_USERNAME }}/frontend-image:latest
+        run: cosign sign --yes ${IMAGE}
 
       - name: Sign the published backend Docker image
         if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          IMAGE=docker.pkg.github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-backend:latest
-          cosign sign --yes $IMAGE
+        env:
+          IMAGE: ${{ secrets.DOCKER_USERNAME }}/backend-image:latest
+        run: cosign sign --yes ${IMAGE}
 
       - name: Test with docker-compose
         run: |
           docker-compose up -d
           # Add any commands to run your tests here
           docker-compose down
+
+      - name: Create GitHub package
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+          body: |
+            Release of version ${{ github.ref }}.
+
